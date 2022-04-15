@@ -1,4 +1,3 @@
-import type { Long } from 'bson';
 import Denque = require('denque');
 import type { Readable } from 'stream';
 
@@ -85,7 +84,7 @@ export interface ResumeOptions {
 }
 
 /**
- * Represents the logical starting point for a new or resuming on the server.
+ * Represents the logical starting point for a new ChangeStream or resuming a ChangeStream on the server.
  * @see https://www.mongodb.com/docs/manual/changeStreams/#std-label-change-stream-resume
  * @public
  */
@@ -136,9 +135,9 @@ export interface ChangeStreamOptions extends AggregateOptions {
 }
 
 /** @public */
-export interface ChangeStreamFullNameSpace {
-  /** The namespace */
-  ns: { db: string; coll: string };
+export interface ChangeStreamNameSpace {
+  db: string;
+  coll: string;
 }
 
 /** @public */
@@ -170,8 +169,10 @@ export interface ChangeStreamDocumentCommon {
   /**
    * The transaction number.
    * Only present if the operation is part of a multi-document transaction.
+   *
+   * **NOTE:** txnNumber can be a Long if promoteLongs is set to false
    */
-  txnNumber?: number | Long;
+  txnNumber?: number;
 
   /**
    * The identifier for the session associated with the transaction.
@@ -184,24 +185,24 @@ export interface ChangeStreamDocumentCommon {
  * @public
  * @see https://www.mongodb.com/docs/manual/reference/change-events/#insert-event
  */
-export interface InsertChangeStreamDocument<TSchema extends Document = Document>
+export interface ChangeStreamInsertDocument<TSchema extends Document = Document>
   extends ChangeStreamDocumentCommon,
-    ChangeStreamDocumentKey<TSchema>,
-    ChangeStreamFullNameSpace {
+    ChangeStreamDocumentKey<TSchema> {
   /** Describes the type of operation represented in this change notification */
   operationType: 'insert';
   /** This key will contain the document being inserted */
   fullDocument: TSchema;
+  /** Namespace the insert event occured on */
+  ns: ChangeStreamNameSpace;
 }
 
 /**
  * @public
  * @see https://www.mongodb.com/docs/manual/reference/change-events/#update-event
  */
-export interface UpdateChangeStreamDocument<TSchema extends Document = Document>
+export interface ChangeStreamUpdateDocument<TSchema extends Document = Document>
   extends ChangeStreamDocumentCommon,
-    ChangeStreamDocumentKey<TSchema>,
-    ChangeStreamFullNameSpace {
+    ChangeStreamDocumentKey<TSchema> {
   /** Describes the type of operation represented in this change notification */
   operationType: 'update';
   /**
@@ -213,63 +214,67 @@ export interface UpdateChangeStreamDocument<TSchema extends Document = Document>
   fullDocument?: TSchema;
   /** Contains a description of updated and removed fields in this operation */
   updateDescription: UpdateDescription<TSchema>;
+  /** Namespace the update event occured on */
+  ns: ChangeStreamNameSpace;
 }
 
 /**
  * @public
  * @see https://www.mongodb.com/docs/manual/reference/change-events/#replace-event
  */
-export interface ReplaceChangeStreamDocument<TSchema extends Document = Document>
+export interface ChangeStreamReplaceDocument<TSchema extends Document = Document>
   extends ChangeStreamDocumentCommon,
-    ChangeStreamDocumentKey<TSchema>,
-    ChangeStreamFullNameSpace {
+    ChangeStreamDocumentKey<TSchema> {
   /** Describes the type of operation represented in this change notification */
   operationType: 'replace';
   /** The fullDocument of a replace event represents the document after the insert of the replacement document */
   fullDocument: TSchema;
+  /** Namespace the replace event occured on */
+  ns: ChangeStreamNameSpace;
 }
 
 /**
  * @public
  * @see https://www.mongodb.com/docs/manual/reference/change-events/#delete-event
  */
-export interface DeleteChangeStreamDocument<TSchema extends Document = Document>
+export interface ChangeStreamDeleteDocument<TSchema extends Document = Document>
   extends ChangeStreamDocumentCommon,
-    ChangeStreamDocumentKey<TSchema>,
-    ChangeStreamFullNameSpace {
+    ChangeStreamDocumentKey<TSchema> {
   /** Describes the type of operation represented in this change notification */
   operationType: 'delete';
+  /** Namespace the delete event occured on */
+  ns: ChangeStreamNameSpace;
 }
 
 /**
  * @public
  * @see https://www.mongodb.com/docs/manual/reference/change-events/#drop-event
  */
-export interface DropChangeStreamDocument
-  extends ChangeStreamDocumentCommon,
-    ChangeStreamFullNameSpace {
+export interface ChangeStreamDropDocument extends ChangeStreamDocumentCommon {
   /** Describes the type of operation represented in this change notification */
   operationType: 'drop';
+  /** Namespace the drop event occured on */
+  ns: ChangeStreamNameSpace;
 }
 
 /**
  * @public
  * @see https://www.mongodb.com/docs/manual/reference/change-events/#rename-event
  */
-export interface RenameChangeStreamDocument
-  extends ChangeStreamDocumentCommon,
-    ChangeStreamFullNameSpace {
+export interface ChangeStreamRenameDocument extends ChangeStreamDocumentCommon {
   /** Describes the type of operation represented in this change notification */
   operationType: 'rename';
   /** The new name for the `ns.coll` collection */
   to: { db: string; coll: string };
+  /** The "from" namespace that the rename occured on */
+  ns: ChangeStreamNameSpace;
 }
 
 /**
  * @public
  * @see https://www.mongodb.com/docs/manual/reference/change-events/#dropdatabase-event
  */
-export interface DropDatabaseChangeStreamDocument extends ChangeStreamDocumentCommon {
+export interface ChangeStreamDropDatabaseDocument extends ChangeStreamDocumentCommon {
   /** Describes the type of operation represented in this change notification */
   operationType: 'dropDatabase';
   /** The database dropped */
@@ -280,21 +285,21 @@ export interface DropDatabaseChangeStreamDocument extends ChangeStreamDocumentCo
  * @public
  * @see https://www.mongodb.com/docs/manual/reference/change-events/#invalidate-event
  */
-export interface InvalidateChangeStreamDocument extends ChangeStreamDocumentCommon {
+export interface ChangeStreamInvalidateDocument extends ChangeStreamDocumentCommon {
   /** Describes the type of operation represented in this change notification */
   operationType: 'invalidate';
 }
 
 /** @public */
 export type ChangeStreamDocument<TSchema extends Document = Document> =
-  | InsertChangeStreamDocument<TSchema>
-  | UpdateChangeStreamDocument<TSchema>
-  | ReplaceChangeStreamDocument<TSchema>
-  | DeleteChangeStreamDocument<TSchema>
-  | DropChangeStreamDocument
-  | RenameChangeStreamDocument
-  | DropDatabaseChangeStreamDocument
-  | InvalidateChangeStreamDocument;
+  | ChangeStreamInsertDocument<TSchema>
+  | ChangeStreamUpdateDocument<TSchema>
+  | ChangeStreamReplaceDocument<TSchema>
+  | ChangeStreamDeleteDocument<TSchema>
+  | ChangeStreamDropDocument
+  | ChangeStreamRenameDocument
+  | ChangeStreamDropDatabaseDocument
+  | ChangeStreamInvalidateDocument;
 
 /** @public */
 export interface UpdateDescription<TSchema extends Document = Document> {

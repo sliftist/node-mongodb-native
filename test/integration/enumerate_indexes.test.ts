@@ -1,7 +1,6 @@
-import { runUnifiedSuite } from '../tools/unified-spec-runner/runner';
 import { TestBuilder, UnifiedTestSuiteBuilder } from '../tools/utils';
 
-const testSuite = new UnifiedTestSuiteBuilder('listIndexes with comment option')
+new UnifiedTestSuiteBuilder('listIndexes with comment option')
   .createEntities(UnifiedTestSuiteBuilder.defaultEntities)
   .initialData({
     collectionName: 'collection0',
@@ -88,8 +87,4 @@ const testSuite = new UnifiedTestSuiteBuilder('listIndexes with comment option')
       })
       .toJSON()
   )
-  .toJSON();
-
-describe('listIndexes with comment option', () => {
-  runUnifiedSuite([testSuite]);
-});
+  .toMocha();

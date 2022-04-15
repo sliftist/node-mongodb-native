@@ -1,5 +1,4 @@
 import { Long } from '../../../src';
-import { runUnifiedSuite } from '../../tools/unified-spec-runner/runner';
 import { TestBuilder, UnifiedTestSuiteBuilder } from '../../tools/utils';
 
 const falsyValues = [0, false, '', Long.ZERO, null, NaN] as const;
@@ -58,7 +57,7 @@ const tests = Array.from(generateTestCombinations()).map(({ name, args }) => {
     .toJSON();
 });
 
-const testSuite = new UnifiedTestSuiteBuilder('Comment with Falsy Values')
+new UnifiedTestSuiteBuilder('Comment with Falsy Values')
   .runOnRequirement({ minServerVersion: '4.4.0' })
   .createEntities(UnifiedTestSuiteBuilder.defaultEntities)
   .initialData({
@@ -70,7 +69,7 @@ const testSuite = new UnifiedTestSuiteBuilder('Comment with Falsy Values')
     ]
   })
   .test(tests)
-  .toJSON();
+  .toMocha();
 
 const testsForChangeStreamsAggregate = falsyValues.map(falsyValue => {
   const description = `ChangeStreams should pass falsy value ${falsyToString(
@@ -157,9 +156,7 @@ const testsForGetMore = falsyValues.map(falsyValue => {
     .toJSON();
 });
 
-const changeStreamTestSuite = new UnifiedTestSuiteBuilder(
-  'Change Streams Comment with Falsy Values'
-)
+new UnifiedTestSuiteBuilder('Change Streams Comment with Falsy Values')
   .schemaVersion('1.0')
   .createEntities(UnifiedTestSuiteBuilder.defaultEntities)
   .initialData({
@@ -170,9 +167,4 @@ const changeStreamTestSuite = new UnifiedTestSuiteBuilder(
   .runOnRequirement({ minServerVersion: '4.4.0', topologies: ['replicaset', 'sharded-replicaset'] })
   .test(testsForChangeStreamsAggregate)
   .test(testsForGetMore)
-  .toJSON();
-
-describe('comment with falsy values ', () => {
-  runUnifiedSuite([testSuite]);
-  runUnifiedSuite([changeStreamTestSuite]);
-});
+  .toMocha();

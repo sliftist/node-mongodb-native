@@ -1,7 +1,6 @@
 import { expect } from 'chai';
 
 import { AddUserOptions, MongoClient, MongoServerError } from '../../src';
-import { runUnifiedSuite } from '../tools/unified-spec-runner/runner';
 import { TestBuilder, UnifiedTestSuiteBuilder } from '../tools/utils';
 
 const metadata: MongoDBMetadataUI = {
@@ -143,7 +142,7 @@ describe('listDatabases() authorizedDatabases flag', function () {
   );
 });
 
-const testSuite = new UnifiedTestSuiteBuilder('listDatabases with comment option')
+new UnifiedTestSuiteBuilder('listDatabases with comment option')
   .createEntities(UnifiedTestSuiteBuilder.defaultEntities)
   .initialData({
     collectionName: 'collection0',
@@ -233,8 +232,4 @@ const testSuite = new UnifiedTestSuiteBuilder('listDatabases with comment option
       })
       .toJSON()
   )
-  .toJSON();
-
-describe('listDatabases with comment option', () => {
-  runUnifiedSuite([testSuite]);
-});
+  .toMocha();

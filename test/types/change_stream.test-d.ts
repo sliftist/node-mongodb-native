@@ -1,19 +1,22 @@
 import { expectError, expectType } from 'tsd';
 
 import type {
+  ChangeStreamDeleteDocument,
   ChangeStreamDocument,
   ChangeStreamDocumentCommon,
   ChangeStreamDocumentKey,
-  ChangeStreamFullNameSpace,
+  ChangeStreamDropDatabaseDocument,
+  ChangeStreamDropDocument,
+  ChangeStreamInsertDocument,
+  ChangeStreamInvalidateDocument,
+  ChangeStreamNameSpace,
   ChangeStreamOptions,
-  DeleteChangeStreamDocument,
-  InsertChangeStreamDocument,
-  Long,
-  ReplaceChangeStreamDocument,
+  ChangeStreamRenameDocument,
+  ChangeStreamReplaceDocument,
+  ChangeStreamUpdateDocument,
   ResumeToken,
   ServerSessionId,
   Timestamp,
-  UpdateChangeStreamDocument,
   UpdateDescription
 } from '../../src';
 
@@ -42,17 +45,17 @@ expectType<ChangeStreamOperationType>(change.operationType);
 expectType<ChangeStreamDocument extends ChangeStreamDocumentCommon ? true : false>(true);
 expectType<ResumeToken>(change._id);
 expectType<Timestamp | undefined>(change.clusterTime);
-expectType<Long | number | undefined>(change.txnNumber);
+expectType<number | undefined>(change.txnNumber); // Could be a Long if promoteLongs is off
 expectType<ServerSessionId | undefined>(change.lsid);
 
 // You must narrow to get to certain properties
 expectError(change.fullDocument);
 
 type CrudChangeDoc =
-  | InsertChangeStreamDocument<Schema> //  C
-  | ReplaceChangeStreamDocument<Schema> // R
-  | UpdateChangeStreamDocument<Schema> //  U
-  | DeleteChangeStreamDocument<Schema>; // D
+  | ChangeStreamInsertDocument<Schema> //  C
+  | ChangeStreamReplaceDocument<Schema> // R
+  | ChangeStreamUpdateDocument<Schema> //  U
+  | ChangeStreamDeleteDocument<Schema>; // D
 declare const crudChange: CrudChangeDoc;
 
 // ChangeStreamDocumentKey
@@ -61,11 +64,12 @@ expectType<number>(crudChange.documentKey._id); // _id will get typed
 expectType<any>(crudChange.documentKey.blah); // shard keys could be anything
 
 // ChangeStreamFullNameSpace
-expectType<CrudChangeDoc extends ChangeStreamFullNameSpace ? true : false>(true);
+expectType<ChangeStreamNameSpace>(crudChange.ns);
 expectType<{ db: string; coll: string }>(crudChange.ns);
 
 switch (change.operationType) {
   case 'insert': {
+    expectType<ChangeStreamInsertDocument<Schema>>(change);
     expectType<'insert'>(change.operationType);
     expectType<number>(change.documentKey._id);
     expectType<any>(change.documentKey.blah);
@@ -73,6 +77,7 @@ switch (change.operationType) {
     break;
   }
   case 'update': {
+    expectType<ChangeStreamUpdateDocument<Schema>>(change);
     expectType<'update'>(change.operationType);
     expectType<Schema | undefined>(change.fullDocument); // Update only attaches fullDocument if configured
     expectType<UpdateDescription<Schema>>(change.updateDescription);
@@ -84,34 +89,43 @@ switch (change.operationType) {
     break;
   }
   case 'replace': {
+    expectType<ChangeStreamReplaceDocument<Schema>>(change);
     expectType<'replace'>(change.operationType);
     expectType<Schema>(change.fullDocument);
     break;
   }
   case 'delete': {
+    expectType<ChangeStreamDeleteDocument<Schema>>(change);
     expectType<'delete'>(change.operationType);
     expectError(change.fullDocument); // Delete has no fullDocument
     break;
   }
   case 'drop': {
+    expectType<ChangeStreamDropDocument>(change);
     expectType<'drop'>(change.operationType);
     expectType<{ db: string; coll: string }>(change.ns);
     break;
   }
   case 'rename': {
+    expectType<ChangeStreamRenameDocument>(change);
     expectType<'rename'>(change.operationType);
     expectType<{ db: string; coll: string }>(change.ns);
     expectType<{ db: string; coll: string }>(change.to);
     break;
   }
   case 'dropDatabase': {
+    expectType<ChangeStreamDropDatabaseDocument>(change);
     expectType<'dropDatabase'>(change.operationType);
     expectError(change.ns.coll);
     break;
   }
   case 'invalidate': {
+    expectType<ChangeStreamInvalidateDocument>(change);
     expectType<'invalidate'>(change.operationType);
     expectError(change.ns);
     break;
+  }
+  default: {
+    expectType<never>(change);
   }
 }
