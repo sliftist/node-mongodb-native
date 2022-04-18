@@ -24,7 +24,7 @@ new UnifiedTestSuiteBuilder('listIndexes with comment option')
           {
             commandStartedEvent: {
               command: {
-                listIndexes: 'coll0',
+                listIndexes: 'collection0',
                 comment: { $$exists: false }
               }
             }

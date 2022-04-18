@@ -449,7 +449,7 @@ export class EntitiesMap<E = Entity> extends Map<string, E> {
     // startup events are never part of testing
     for (const [, client] of map.mapOf('client')) {
       client.commandEvents = [];
-      client.cmapEvents = [];
+      // client.cmapEvents = []; TODO connect optional PR
     }
 
     return map;
