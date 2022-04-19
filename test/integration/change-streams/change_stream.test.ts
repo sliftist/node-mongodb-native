@@ -1,23 +1,38 @@
-'use strict';
-const assert = require('assert');
-const { Transform, PassThrough } = require('stream');
-const { delay, setupDatabase, withClient, withCursor } = require('../shared');
-const mock = require('../../tools/mongodb-mock/index');
-const { EventCollector, getSymbolFrom } = require('../../tools/utils');
-const { expect } = require('chai');
+import * as assert from 'assert';
+import { expect } from 'chai';
+import * as crypto from 'crypto';
+import * as sinon from 'sinon';
+import { PassThrough, Transform } from 'stream';
 
-const sinon = require('sinon');
-const { Long, ReadPreference, MongoNetworkError } = require('../../../src');
+import { ChangeStream, Collection, Long, MongoNetworkError, ReadPreference } from '../../../src';
+import { isHello } from '../../../src/utils';
+import * as mock from '../../tools/mongodb-mock/index';
+import { skipBrokenAuthTestBeforeEachHook } from '../../tools/runner/hooks/configuration';
+import {
+  EventCollector,
+  getSymbolFrom,
+  TestBuilder,
+  UnifiedTestSuiteBuilder
+} from '../../tools/utils';
+import { delay, setupDatabase, withClient, withCursor } from '../shared';
 
-const crypto = require('crypto');
-const { isHello } = require('../../../src/utils');
-const { skipBrokenAuthTestBeforeEachHook } = require('../../tools/runner/hooks/configuration');
+type WithChangeStreamCallback = (
+  collection: Collection,
+  changeStream: ChangeStream,
+  done: (error?: Error) => void
+) => void;
 
-function withChangeStream(dbName, collectionName, callback) {
-  if (arguments.length === 1) {
+function withChangeStream(callback?: WithChangeStreamCallback);
+function withChangeStream(dbName?: string, callback?: WithChangeStreamCallback);
+function withChangeStream(
+  dbName?: string | WithChangeStreamCallback,
+  collectionName?: string | WithChangeStreamCallback,
+  callback?: WithChangeStreamCallback
+) {
+  if (arguments.length === 1 && typeof dbName === 'function') {
     callback = dbName;
     dbName = undefined;
-  } else if (arguments.length === 2) {
+  } else if (arguments.length === 2 && typeof collectionName === 'function') {
     callback = collectionName;
     collectionName = dbName;
     dbName = undefined;
@@ -48,9 +63,9 @@ function withChangeStream(dbName, collectionName, callback) {
 /**
  * Triggers a fake resumable error on a change stream
  *
- * @param {ChangeStream} changeStream
- * @param {number} [delay] optional delay before triggering error
- * @param {Function} onClose callback when cursor closed due this error
+ * param ChangeStream - changeStream
+ * param number - [delay] optional delay before triggering error
+ * param Function - onClose callback when cursor closed due this error
  */
 function triggerResumableError(changeStream, delay, onClose) {
   if (arguments.length === 2) {
@@ -77,7 +92,9 @@ function triggerResumableError(changeStream, delay, onClose) {
       nextStub.restore();
     });
 
-    changeStream.next(() => {});
+    changeStream.next(() => {
+      // iterator format
+    });
   }
 
   if (delay != null) {
@@ -91,8 +108,8 @@ function triggerResumableError(changeStream, delay, onClose) {
 /**
  * Waits for a change stream to start
  *
- * @param {ChangeStream} changeStream
- * @param {Function} callback
+ * param ChangeStream changeStream
+ * param Function callback
  */
 function waitForStarted(changeStream, callback) {
   changeStream.cursor.once('init', () => {
@@ -105,8 +122,8 @@ function waitForStarted(changeStream, callback) {
  * will return `null` if the next bach is empty, rather than waiting forever
  * for a non-empty batch.
  *
- * @param {ChangeStream} changeStream
- * @param {Function} callback
+ * param ChangeStream changeStream
+ * param Function callback
  */
 function tryNext(changeStream, callback) {
   let complete = false;
@@ -139,17 +156,12 @@ function tryNext(changeStream, callback) {
 /**
  * Exhausts a change stream aggregating all responses until the first
  * empty batch into a returned array of events.
- *
- * @param {ChangeStream} changeStream
- * @param {Function|Array} bag
- * @param {Function} [callback]
  */
-function exhaust(changeStream, bag, callback) {
-  if (typeof bag === 'function') {
-    callback = bag;
-    bag = [];
-  }
-
+function exhaust(
+  changeStream?: ChangeStream,
+  bag?: any[],
+  callback?: (error?: Error, bag?: any[]) => void
+): void {
   tryNext(changeStream, (err, doc) => {
     if (err) return callback(err);
     if (doc === null) return callback(undefined, bag);
@@ -383,6 +395,7 @@ describe('Change Streams', function () {
             changeStream.next((err, change) => {
               expect(err).to.not.exist;
               assert.equal(change.operationType, 'insert');
+              if (change.operationType !== 'insert') throw new Error('ah!');
               assert.equal(change.fullDocument.e, 5);
               assert.equal(change.ns.db, 'integration_tests');
               assert.equal(change.ns.coll, 'docsCallback');
@@ -636,11 +649,11 @@ describe('Change Streams', function () {
         const collector = new EventCollector(changeStream, ['change']);
         waitForStarted(changeStream, () => {
           // Trigger the first database event
-          db.collection('cacheResumeTokenListener').insert({ b: 2 }, (err, result) => {
+          db.collection('cacheResumeTokenListener').insertMany([{ b: 2 }], (err, result) => {
             expect(err).to.not.exist;
             expect(result).property('insertedCount').to.equal(1);
 
-            collector.waitForEvent('change', (err, events) => {
+            collector.waitForEvent('change', 1, (err, events) => {
               expect(err).to.not.exist;
               expect(changeStream).property('resumeToken').to.eql(events[0]._id);
 
@@ -665,7 +678,9 @@ describe('Change Streams', function () {
         const collection = database.collection('resumetokenProjectedOutCallback');
         const changeStream = collection.watch([{ $project: { _id: false } }]);
 
-        changeStream.hasNext(() => {}); // trigger initialize
+        changeStream.hasNext(() => {
+          // trigger initialize
+        });
 
         changeStream.cursor.on('init', () => {
           collection.insertOne({ b: 2 }, (err, res) => {
@@ -704,11 +719,11 @@ describe('Change Streams', function () {
 
         const collector = new EventCollector(changeStream, ['change', 'error']);
         waitForStarted(changeStream, () => {
-          collection.insert({ b: 2 }, (err, result) => {
+          collection.insertMany([{ b: 2 }], (err, result) => {
             expect(err).to.not.exist;
             expect(result).property('insertedCount').to.equal(1);
 
-            collector.waitForEvent('error', (err, events) => {
+            collector.waitForEvent('error', 1, (err, events) => {
               expect(err).to.not.exist;
               expect(events).to.have.lengthOf.at.least(1);
               done();
@@ -788,7 +803,7 @@ describe('Change Streams', function () {
 
         // Trigger the first database event
         waitForStarted(changeStream, () => {
-          this.defer(database.collection('invalidateCallback').insert({ a: 1 }));
+          this.defer(database.collection('invalidateCallback').insertOne({ a: 1 }));
         });
 
         changeStream.next((err, change) => {
@@ -889,12 +904,12 @@ describe('Change Streams', function () {
         const database = client.db('integration_tests');
         const collection = database.collection('resumeAfterTest2');
 
-        let firstChangeStream, secondChangeStream;
+        let secondChangeStream;
 
         let resumeToken;
         const docs = [{ a: 0 }, { a: 1 }, { a: 2 }];
 
-        firstChangeStream = collection.watch(pipeline);
+        const firstChangeStream = collection.watch(pipeline);
         this.defer(() => firstChangeStream.close());
 
         // Trigger the first database event
@@ -1120,7 +1135,6 @@ describe('Change Streams', function () {
 
     test: function (done) {
       const configuration = this.configuration;
-      const stream = require('stream');
       const client = configuration.newClient();
 
       client.connect((err, client) => {
@@ -1132,7 +1146,7 @@ describe('Change Streams', function () {
         const changeStream = collection.watch(pipeline);
         this.defer(() => changeStream.close());
 
-        const outStream = new stream.PassThrough({ objectMode: true });
+        const outStream = new PassThrough({ objectMode: true });
 
         // Make a stream transforming to JSON and piping to the file
         changeStream.stream({ transform: JSON.stringify }).pipe(outStream);
@@ -1150,7 +1164,7 @@ describe('Change Streams', function () {
           .on('error', done);
 
         waitForStarted(changeStream, () => {
-          this.defer(collection.insert({ a: 1 }));
+          this.defer(collection.insertOne({ a: 1 }));
         });
       });
     }
@@ -1206,7 +1220,7 @@ describe('Change Streams', function () {
         });
 
         waitForStarted(changeStream, () => {
-          this.defer(collection.insert({ a: 1407 }));
+          this.defer(collection.insertOne({ a: 1407 }));
         });
       });
     }
@@ -1283,9 +1297,10 @@ describe('Change Streams', function () {
       metadata: { requires: { topology: 'replicaset', mongodb: '>=3.6' } },
       async test() {
         expect(changeStream).to.have.property(kMode, false);
-        // ChangeStream detects emitter usage via 'newListener' event
-        // so this covers all emitter methods
-        changeStream.on('change', () => {});
+        changeStream.on('change', () => {
+          // ChangeStream detects emitter usage via 'newListener' event
+          // so this covers all emitter methods
+        });
         expect(changeStream).to.have.property(kMode, 'emitter');
 
         const errRegex = /ChangeStream cannot be used as an iterator/;
@@ -1311,11 +1326,12 @@ describe('Change Streams', function () {
         expect(res).to.not.exist;
         expect(changeStream).to.have.property(kMode, 'iterator');
 
-        // This does throw synchronously
-        // the newListener event is called sync
-        // which calls streamEvents, which calls setIsEmitter, which will throw
         expect(() => {
-          changeStream.on('change', () => {});
+          changeStream.on('change', () => {
+            // This does throw synchronously
+            // the newListener event is called sync
+            // which calls streamEvents, which calls setIsEmitter, which will throw
+          });
         }).to.throw(/ChangeStream cannot be used as an EventEmitter/);
       }
     });
@@ -1371,6 +1387,7 @@ describe('Change Streams', function () {
     it('when invoked with promises', {
       metadata: { requires: { topology: 'replicaset', mongodb: '>=3.6' } },
       test: function () {
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
         const test = this;
 
         function read() {
@@ -1415,7 +1432,11 @@ describe('Change Streams', function () {
           });
         });
 
-        ops.push(write().catch(() => {}));
+        ops.push(
+          write().catch(() => {
+            // do not error handle??
+          })
+        );
       }
     });
 
@@ -1447,7 +1468,9 @@ describe('Change Streams', function () {
         waitForStarted(changeStream, () =>
           write()
             .then(() => lastWrite())
-            .catch(() => {})
+            .catch(() => {
+              // no error handling??
+            })
         );
       }
     });
@@ -1561,7 +1584,7 @@ describe('Change Streams', function () {
 
         coll.insertOne({ x: 2 }, { writeConcern: { w: 'majority', j: true } }, err => {
           expect(err).to.not.exist;
-          exhaust(changeStream, (err, bag) => {
+          exhaust(changeStream, [], (err, bag) => {
             expect(err).to.not.exist;
             const finalOperation = bag.pop();
             expect(finalOperation).to.containSubset({
@@ -1575,6 +1598,221 @@ describe('Change Streams', function () {
       }
     });
   });
+
+  new UnifiedTestSuiteBuilder('change stream document shapes')
+    .runOnRequirement({
+      minServerVersion: '4.0.0',
+      topologies: ['replicaset', 'load-balanced', 'sharded', 'sharded-replicaset']
+    })
+    .createEntities([
+      ...UnifiedTestSuiteBuilder.defaultEntities,
+
+      // transaction test
+      { session: { id: 'session0', client: 'client0' } },
+
+      // rename test
+      { database: { id: 'admin', databaseName: 'admin', client: 'client0' } },
+      { database: { id: 'renameDb', databaseName: 'renameDb', client: 'client0' } },
+      { collection: { id: 'collToRename', collectionName: 'collToRename', database: 'renameDb' } },
+
+      // drop test
+      { database: { id: 'dbToDrop', databaseName: 'dbToDrop', client: 'client0' } },
+      {
+        collection: { id: 'collInDbToDrop', collectionName: 'collInDbToDrop', database: 'dbToDrop' }
+      }
+    ])
+    .test(
+      new TestBuilder('change stream dropDatabase, drop, and invalidate events')
+        .operation({
+          object: 'admin',
+          name: 'runCommand',
+          arguments: { command: { create: 'dbToDrop.collInDbToDrop' } },
+          ignoreResultAndError: true
+        })
+        .operation({
+          object: 'client0',
+          name: 'createChangeStream',
+          saveResultAsEntity: 'changeStreamOnClient'
+        })
+        .operation({
+          object: 'collInDbToDrop',
+          name: 'createChangeStream',
+          saveResultAsEntity: 'changeStreamOnCollection'
+        })
+        .operation({
+          object: 'dbToDrop',
+          name: 'runCommand',
+          arguments: { command: { dropDatabase: 1 } },
+          expectResult: { ok: 1 }
+        })
+        .operation({
+          object: 'changeStreamOnClient',
+          name: 'iterateUntilDocumentOrError',
+          expectResult: {
+            _id: { $$exists: true },
+            operationType: 'drop',
+            ns: { db: 'dbToDrop', coll: 'collInDbToDrop' },
+            clusterTime: { $$type: 'timestamp' },
+            txnNumber: { $$exists: false },
+            lsid: { $$exists: false }
+          }
+        })
+        .operation({
+          object: 'changeStreamOnClient',
+          name: 'iterateUntilDocumentOrError',
+          expectResult: {
+            _id: { $$exists: true },
+            operationType: 'dropDatabase',
+            ns: { db: 'dbToDrop', coll: { $$exists: false } },
+            clusterTime: { $$type: 'timestamp' },
+            txnNumber: { $$exists: false },
+            lsid: { $$exists: false }
+          }
+        })
+        .operation({
+          object: 'changeStreamOnCollection',
+          name: 'iterateUntilDocumentOrError',
+          expectResult: {
+            _id: { $$exists: true },
+            operationType: 'drop',
+            ns: { db: 'dbToDrop', coll: 'collInDbToDrop' },
+            clusterTime: { $$type: 'timestamp' },
+            txnNumber: { $$exists: false },
+            lsid: { $$exists: false }
+          }
+        })
+        .operation({
+          object: 'changeStreamOnCollection',
+          name: 'iterateUntilDocumentOrError',
+          expectResult: {
+            _id: { $$exists: true },
+            operationType: 'invalidate',
+            clusterTime: { $$type: 'timestamp' },
+            txnNumber: { $$exists: false },
+            lsid: { $$exists: false }
+          }
+        })
+        .toJSON()
+    )
+    .test(
+      new TestBuilder('change stream event inside transaction')
+        .operation({
+          object: 'collection0',
+          name: 'createChangeStream',
+          saveResultAsEntity: 'changeStreamOnCollection'
+        })
+        .operation({
+          name: 'startTransaction',
+          object: 'session0'
+        })
+        .operation({
+          name: 'insertOne',
+          object: 'collection0',
+          arguments: {
+            session: 'session0',
+            document: {
+              _id: 3
+            }
+          },
+          expectResult: {
+            $$unsetOrMatches: {
+              insertedId: {
+                $$unsetOrMatches: 3
+              }
+            }
+          }
+        })
+        .operation({
+          name: 'commitTransaction',
+          object: 'session0'
+        })
+        .operation({
+          object: 'changeStreamOnCollection',
+          name: 'iterateUntilDocumentOrError',
+          expectResult: {
+            _id: { $$exists: true },
+            operationType: 'insert',
+            fullDocument: { _id: 3 },
+            documentKey: { _id: 3 },
+            ns: { db: 'database0', coll: 'collection0' },
+            clusterTime: { $$type: 'timestamp' },
+            txnNumber: { $$type: ['long', 'int'] },
+            lsid: { $$sessionLsid: 'session0' }
+          }
+        })
+        .toJSON()
+    )
+    .test(
+      new TestBuilder('change stream rename event')
+        .operation({
+          object: 'admin',
+          name: 'runCommand',
+          arguments: { command: { create: 'renameDb.collToRename' } },
+          ignoreResultAndError: true
+        })
+        .operation({
+          object: 'renameDb',
+          name: 'createChangeStream',
+          saveResultAsEntity: 'changeStreamOnDb'
+        })
+        .operation({
+          name: 'insertOne',
+          object: 'collToRename',
+          arguments: {
+            document: {
+              _id: 3
+            }
+          },
+          expectResult: {
+            $$unsetOrMatches: {
+              insertedId: {
+                $$unsetOrMatches: 3
+              }
+            }
+          }
+        })
+        .operation({
+          object: 'changeStreamOnDb',
+          name: 'iterateUntilDocumentOrError',
+          expectResult: {
+            _id: { $$exists: true },
+            operationType: 'insert',
+            fullDocument: { _id: 3 },
+            documentKey: { _id: 3 },
+            ns: { db: 'renameDb', coll: 'collToRename' },
+            clusterTime: { $$type: 'timestamp' },
+            txnNumber: { $$exists: false },
+            lsid: { $$exists: false }
+          }
+        })
+        .operation({
+          name: 'runCommand',
+          object: 'admin',
+          arguments: {
+            command: {
+              renameCollection: 'renameDb.collToRename',
+              to: 'renameDb.newCollectionName',
+              dropTarget: false
+            }
+          },
+          expectResult: { ok: 1 }
+        })
+        .operation({
+          object: 'changeStreamOnDb',
+          name: 'iterateUntilDocumentOrError',
+          expectResult: {
+            _id: { $$exists: true },
+            operationType: 'rename',
+            ns: { db: 'renameDb', coll: 'collToRename' },
+            to: { db: 'renameDb', coll: 'newCollectionName' },
+            clusterTime: { $$type: 'timestamp' },
+            txnNumber: { $$exists: false },
+            lsid: { $$exists: false }
+          }
+        })
+        .toJSON()
+    )
+    .toMocha();
 });
 
 describe('Change Stream Resume Error Tests', function () {
@@ -1677,47 +1915,48 @@ describe('Change Stream Resume Error Tests', function () {
       });
     })
   }).skipReason = 'TODO(NODE-3884): Fix when implementing prose case #3';
-});
-context('NODE-2626 - handle null changes without error', function () {
-  let mockServer;
-  afterEach(() => mock.cleanup());
-  beforeEach(() => mock.createServer().then(server => (mockServer = server)));
-  it('changeStream should close if cursor id for initial aggregate is Long.ZERO', function (done) {
-    mockServer.setMessageHandler(req => {
-      const doc = req.document;
-      if (isHello(doc)) {
-        return req.reply(mock.HELLO);
-      }
-      if (doc.aggregate) {
-        return req.reply({
-          ok: 1,
-          cursor: {
-            id: Long.ZERO,
-            firstBatch: []
-          }
+
+  describe('NODE-2626 - handle null changes without error', function () {
+    let mockServer;
+    afterEach(() => mock.cleanup());
+    beforeEach(() => mock.createServer().then(server => (mockServer = server)));
+    it('changeStream should close if cursor id for initial aggregate is Long.ZERO', function (done) {
+      mockServer.setMessageHandler(req => {
+        const doc = req.document;
+        if (isHello(doc)) {
+          return req.reply(mock.HELLO);
+        }
+        if (doc.aggregate) {
+          return req.reply({
+            ok: 1,
+            cursor: {
+              id: Long.ZERO,
+              firstBatch: []
+            }
+          });
+        }
+        if (doc.getMore) {
+          return req.reply({
+            ok: 1,
+            cursor: {
+              id: new Long(1407, 1407),
+              nextBatch: []
+            }
+          });
+        }
+        req.reply({ ok: 1 });
+      });
+      const client = this.configuration.newClient(`mongodb://${mockServer.uri()}/`);
+      client.connect(err => {
+        expect(err).to.not.exist;
+        const collection = client.db('cs').collection('test');
+        const changeStream = collection.watch();
+        changeStream.next((err, doc) => {
+          expect(err).to.exist;
+          expect(doc).to.not.exist;
+          expect(err.message).to.equal('ChangeStream is closed');
+          changeStream.close(() => client.close(done));
         });
-      }
-      if (doc.getMore) {
-        return req.reply({
-          ok: 1,
-          cursor: {
-            id: new Long(1407, 1407),
-            nextBatch: []
-          }
-        });
-      }
-      req.reply({ ok: 1 });
-    });
-    const client = this.configuration.newClient(`mongodb://${mockServer.uri()}/`);
-    client.connect(err => {
-      expect(err).to.not.exist;
-      const collection = client.db('cs').collection('test');
-      const changeStream = collection.watch();
-      changeStream.next((err, doc) => {
-        expect(err).to.exist;
-        expect(doc).to.not.exist;
-        expect(err.message).to.equal('ChangeStream is closed');
-        changeStream.close(() => client.close(done));
       });
     });
   });

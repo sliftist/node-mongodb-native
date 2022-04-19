@@ -332,6 +332,14 @@ export class EntitiesMap<E = Entity> extends Map<string, E> {
       expect(await db.dropDatabase()).to.be.true;
     }
 
+    trace('drop namespaces');
+    for (const [, db] of this.mapOf('db')) {
+      if (['admin', 'local', 'config'].includes(db.databaseName)) {
+        continue;
+      }
+      expect(await db.dropDatabase()).to.be.true;
+    }
+
     trace('closeClient');
     for (const [, client] of this.mapOf('client')) {
       await client.close();

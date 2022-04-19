@@ -48,9 +48,6 @@ expectType<Timestamp | undefined>(change.clusterTime);
 expectType<number | undefined>(change.txnNumber); // Could be a Long if promoteLongs is off
 expectType<ServerSessionId | undefined>(change.lsid);
 
-// You must narrow to get to certain properties
-expectError(change.fullDocument);
-
 type CrudChangeDoc =
   | ChangeStreamInsertDocument<Schema> //  C
   | ChangeStreamReplaceDocument<Schema> // R
@@ -97,7 +94,6 @@ switch (change.operationType) {
   case 'delete': {
     expectType<ChangeStreamDeleteDocument<Schema>>(change);
     expectType<'delete'>(change.operationType);
-    expectError(change.fullDocument); // Delete has no fullDocument
     break;
   }
   case 'drop': {
@@ -122,10 +118,12 @@ switch (change.operationType) {
   case 'invalidate': {
     expectType<ChangeStreamInvalidateDocument>(change);
     expectType<'invalidate'>(change.operationType);
-    expectError(change.ns);
     break;
   }
   default: {
     expectType<never>(change);
   }
 }
+
+// New fields can be added with $addFields
+expectType<any>(change.randomKeyAlwaysAccessibleBecauseOfPipelineFlexibilty);

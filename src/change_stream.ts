@@ -150,7 +150,7 @@ export interface ChangeStreamDocumentKey<TSchema extends Document = Document> {
 }
 
 /** @public */
-export interface ChangeStreamDocumentCommon {
+export interface ChangeStreamDocumentCommon extends Document {
   /**
    * The id functions as an opaque token for use when resuming an interrupted
    * change stream.

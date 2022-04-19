@@ -1,6 +1,6 @@
-'use strict';
+import { expect } from 'chai';
 
-const expect = require('chai').expect;
+import { MongoClient } from '../../src';
 
 // helpers for using chai.expect in the assert style
 const assert = {
@@ -30,7 +30,7 @@ const assert = {
 };
 
 function delay(timeout) {
-  return new Promise(function (resolve) {
+  return new Promise<void>(function (resolve) {
     setTimeout(function () {
       resolve();
     }, timeout);
@@ -71,8 +71,8 @@ function ignoreNsNotFound(err) {
 
 function setupDatabase(configuration, dbsToClean) {
   dbsToClean = Array.isArray(dbsToClean) ? dbsToClean : [];
-  var configDbName = configuration.db;
-  var client = configuration.newClient(configuration.writeConcernMax(), {
+  const configDbName = configuration.db;
+  const client = configuration.newClient(configuration.writeConcernMax(), {
     maxPoolSize: 1
   });
 
@@ -97,14 +97,18 @@ function setupDatabase(configuration, dbsToClean) {
     );
 }
 
-/** @typedef {(client: MongoClient) => Promise | (client: MongoClient, done: Function) => void} withClientCallback */
+type WithClientCallback = (
+  client: MongoClient
+) => Promise<void> | ((client: MongoClient, done?: Mocha.Done) => void);
 /**
  * Safely perform a test with provided MongoClient, ensuring client won't leak.
  *
- * @param {string|MongoClient} [client] if not provided, `withClient` must be bound to test function `this`
- * @param {withClientCallback} callback the test function
+ * param string|MongoClient [client] if not provided, `withClient` must be bound to test function `this`
+ * param withClientCallback callback the test function
  */
-function withClient(client, callback) {
+function withClient(callback: WithClientCallback);
+function withClient(client: MongoClient, callback: WithClientCallback);
+function withClient(client?: MongoClient | WithClientCallback, callback?: WithClientCallback) {
   let connectionString;
   if (arguments.length === 1) {
     callback = client;
@@ -122,9 +126,9 @@ function withClient(client, callback) {
   }
 
   function cleanup(err) {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       try {
-        client.close(closeErr => {
+        (client as MongoClient).close(closeErr => {
           const finalErr = err || closeErr;
           if (finalErr) {
             return reject(finalErr);
@@ -141,7 +145,7 @@ function withClient(client, callback) {
     if (!client) {
       client = this.configuration.newClient(connectionString);
     }
-    return client
+    return (client as MongoClient)
       .connect()
       .then(callback)
       .then(err => {
@@ -158,15 +162,14 @@ function withClient(client, callback) {
   return lambda;
 }
 
-/** @typedef {(client: MongoClient, events: Array, done: Function) => void} withMonitoredClientCallback */
 /**
  * Perform a test with a monitored MongoClient that will filter for certain commands.
  *
- * @param {string|Array|Function} commands commands to filter for
- * @param {object} [options] options to pass on to configuration.newClient
- * @param {object} [options.queryOptions] connection string options
- * @param {object} [options.clientOptions] MongoClient options
- * @param {withMonitoredClientCallback} callback the test function
+ * param string|Array|Function commands commands to filter for
+ * param object [options] options to pass on to configuration.newClient
+ * param object [options.queryOptions] connection string options
+ * param object [options.clientOptions] MongoClient options
+ * param withMonitoredClientCallback callback the test function
  */
 function withMonitoredClient(commands, options, callback) {
   if (arguments.length === 2) {
@@ -192,9 +195,9 @@ function withMonitoredClient(commands, options, callback) {
 /**
  * Safely perform a test with an arbitrary cursor.
  *
- * @param {Function} cursor any cursor that needs to be closed
- * @param {(cursor: object, done: Function) => void} body test body
- * @param {Function} done called after cleanup
+ * param Function cursor any cursor that needs to be closed
+ * param (cursor: object, done: Function): void body test body
+ * param Function done called after cleanup
  */
 function withCursor(cursor, body, done) {
   let clean = false;
@@ -214,26 +217,39 @@ function withCursor(cursor, body, done) {
  * A class for listening on specific events
  *
  * @example
+ * ```js
  * beforeEach(function() {
  *   // capture all commandStarted events from client. Get by doing this.commandStarted.events;
  *   this.commandStarted = new EventCollector(this.client, 'commandStarted');
  * });
+ * ```
  * @example
+ * ```js
  * beforeEach(function() {
  *   // same as above, but only allows 'insert' and 'find' events
  *   this.commandStarted = new EventCollector(this.client, 'commandStarted', {
  *     include: ['insert', 'find']
  *   });
  * });
+ * ```
  * @example
+ * ```js
  * beforeEach(function() {
  *   // same as above, but excludes 'insert' events
  *   this.commandStarted = new EventCollector(this.client, 'commandStarted', {
  *     exclude: ['insert']
  *   });
  * });
+ * ```
  */
 class APMEventCollector {
+  _client: any;
+  _eventName: any;
+  _events: any[];
+  _listener: (e: any) => any;
+  _include: Set<any>;
+  _exclude: Set<any>;
+
   constructor(client, eventName, options) {
     this._client = client;
     this._eventName = eventName;
@@ -293,7 +309,8 @@ function withClientV2(callback) {
   };
 }
 
-module.exports = {
+export {
+  APMEventCollector,
   assert,
   delay,
   dropCollection,
@@ -303,7 +320,6 @@ module.exports = {
   setupDatabase,
   withClient,
   withClientV2,
-  withMonitoredClient,
   withCursor,
-  APMEventCollector
+  withMonitoredClient
 };

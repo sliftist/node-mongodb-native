@@ -73,7 +73,7 @@ export class EventCollector {
   constructor(
     obj: { on: (arg0: any, arg1: (event: any) => number) => void },
     events: any[],
-    options: { timeout: number }
+    options?: { timeout: number }
   ) {
     this._events = Object.create(null);
     this._timeout = options ? options.timeout : 5000;
@@ -437,8 +437,8 @@ export class UnifiedTestSuiteBuilder {
     };
   }
 
-  toMocha(): Mocha.Suite {
-    return describe(this._description, () => runUnifiedSuite([this.toJSON()]));
+  toMocha(): void {
+    return runUnifiedSuite([this.toJSON()]);
   }
 
   clone(): UnifiedSuite {
