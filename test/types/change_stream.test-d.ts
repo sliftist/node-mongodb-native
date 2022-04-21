@@ -14,6 +14,7 @@ import type {
   ChangeStreamRenameDocument,
   ChangeStreamReplaceDocument,
   ChangeStreamUpdateDocument,
+  Collection,
   ResumeToken,
   ServerSessionId,
   Timestamp,
@@ -125,5 +126,17 @@ switch (change.operationType) {
   }
 }
 
-// New fields can be added with $addFields
-expectType<any>(change.randomKeyAlwaysAccessibleBecauseOfPipelineFlexibilty);
+// New fields can be added with $addFields, but you have to use TChange to type it
+expectError(change.randomKeyAlwaysAccessibleBecauseOfPipelineFlexibilty);
+
+declare const collection: Collection<Schema>;
+const pipelineChangeStream = collection.watch<
+  Schema,
+  ChangeStreamInsertDocument<Schema> & { comment: string }
+>([{ $addFields: { comment: 'big changes' } }, { $match: { operationType: 'insert' } }]);
+
+pipelineChangeStream.addListener('change', change => {
+  expectType<string>(change.comment);
+  // No need to narrow in code because the generics did that for us!
+  expectType<Schema>(change.fullDocument);
+});
