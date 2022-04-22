@@ -114,7 +114,7 @@ export interface PipeOptions {
 }
 
 /** @internal */
-type ChangeStreamAggregateRawResult<TChange> = {
+export type ChangeStreamAggregateRawResult<TChange> = {
   $clusterTime: { clusterTime: Timestamp };
   cursor: {
     postBatchResumeToken: unknown;
