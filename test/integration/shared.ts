@@ -106,9 +106,12 @@ type WithClientCallback = (
  * param string|MongoClient [client] if not provided, `withClient` must be bound to test function `this`
  * param withClientCallback callback the test function
  */
-function withClient(callback: WithClientCallback);
-function withClient(client: MongoClient, callback: WithClientCallback);
-function withClient(client?: MongoClient | WithClientCallback, callback?: WithClientCallback) {
+function withClient(callback: WithClientCallback): Mocha.Func;
+function withClient(client: MongoClient, callback: WithClientCallback): Mocha.Func;
+function withClient(
+  client?: MongoClient | WithClientCallback,
+  callback?: WithClientCallback
+): Mocha.Func {
   let connectionString;
   if (arguments.length === 1) {
     callback = client;

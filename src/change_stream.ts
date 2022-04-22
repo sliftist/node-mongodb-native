@@ -1,3 +1,4 @@
+import type { Long } from 'bson';
 import Denque = require('denque');
 import type { Readable } from 'stream';
 
@@ -20,7 +21,7 @@ import {
   MongoRuntimeError
 } from './error';
 import { MongoClient } from './mongo_client';
-import { InferIdType, TypedEventEmitter } from './mongo_types';
+import { InferIdType, TODO_NODE_3286, TypedEventEmitter } from './mongo_types';
 import { AggregateOperation, AggregateOptions } from './operations/aggregate';
 import type { CollationOptions, OperationParent } from './operations/command';
 import { executeOperation, ExecutionResult } from './operations/execute_operation';
@@ -111,6 +112,18 @@ export type OperationTime = Timestamp;
 export interface PipeOptions {
   end?: boolean;
 }
+
+/** @internal */
+type ChangeStreamAggregateRawResult<TChange> = {
+  $clusterTime: { clusterTime: Timestamp };
+  cursor: {
+    postBatchResumeToken: unknown;
+    ns: string;
+    id: Long;
+  } & ({ firstBatch: TChange[] } | { nextBatch: TChange[] });
+  ok: 1;
+  operationTime: Timestamp;
+};
 
 /**
  * Options that can be passed to a ChangeStream. Note that startAfter, resumeAfter, and startAtOperationTime are all mutually exclusive, and the server will error if more than one is specified.
@@ -347,7 +360,7 @@ export type ChangeStreamEvents<
   TChange extends ChangeStreamDocument<TSchema> = ChangeStreamDocument<TSchema>
 > = {
   resumeTokenChanged(token: ResumeToken): void;
-  init(response: TChange): void;
+  init(response: any): void;
   more(response?: any): void;
   response(): void;
   end(): void;
@@ -360,7 +373,7 @@ export type ChangeStreamEvents<
  * @public
  */
 export class ChangeStream<
-  TSchema = Document,
+  TSchema extends Document = Document,
   TChange extends ChangeStreamDocument<TSchema> = ChangeStreamDocument<TSchema>
 > extends TypedEventEmitter<ChangeStreamEvents<TSchema, TChange>> {
   pipeline: Document[];
@@ -774,25 +787,25 @@ export class ChangeStream<
    * @param changeStream - the parent ChangeStream
    * @param err - error getting a new cursor
    */
-  private _processResumeQueue(err?: Error) {
+  private _processResumeQueue(err?: Error): void {
     while (this[kResumeQueue].length) {
       const request = this[kResumeQueue].pop();
       if (!request) break; // Should never occur but TS can't use the length check in the while condition
 
-      if (!err) {
-        if (this[kClosed]) {
-          // TODO(NODE-3485): Replace with MongoChangeStreamClosedError
-          request(new MongoAPIError(CHANGESTREAM_CLOSED_ERROR));
-          return;
-        }
-        if (!this.cursor) {
-          request(new MongoChangeStreamError(NO_CURSOR_ERROR));
-          return;
-        } else {
-          request(err, this.cursor);
-        }
+      if (err != null) {
+        return request(err);
       }
-      request(err);
+
+      if (this[kClosed]) {
+        // TODO(NODE-3485): Replace with MongoChangeStreamClosedError
+        return request(new MongoAPIError(CHANGESTREAM_CLOSED_ERROR));
+      }
+
+      if (!this.cursor) {
+        return request(new MongoChangeStreamError(NO_CURSOR_ERROR));
+      }
+
+      return request(undefined, this.cursor);
     }
   }
 }
@@ -878,12 +891,14 @@ export class ChangeStreamCursor<
     this.hasReceived = true;
   }
 
-  _processBatch(batchName: string, response?: Document): void {
-    const cursor = response?.cursor || {};
+  _processBatch(response: ChangeStreamAggregateRawResult<TChange>): void {
+    const cursor = response.cursor;
     if (cursor.postBatchResumeToken) {
-      this.postBatchResumeToken = cursor.postBatchResumeToken;
+      this.postBatchResumeToken = response.cursor.postBatchResumeToken;
 
-      if (cursor[batchName].length === 0) {
+      const batch =
+        'firstBatch' in response.cursor ? response.cursor.firstBatch : response.cursor.nextBatch;
+      if (batch.length === 0) {
         this.resumeToken = cursor.postBatchResumeToken;
       }
     }
@@ -896,37 +911,39 @@ export class ChangeStreamCursor<
   }
 
   _initialize(session: ClientSession, callback: Callback<ExecutionResult>): void {
-    const aggregateOperation = new AggregateOperation<TChange>(this.namespace, this.pipeline, {
+    const aggregateOperation = new AggregateOperation(this.namespace, this.pipeline, {
       ...this.cursorOptions,
       ...this.options,
       session
     });
 
-    executeOperation(session, aggregateOperation, (err, response) => {
-      if (err || response == null) {
-        return callback(err);
+    executeOperation<any, ChangeStreamAggregateRawResult<TChange>>(
+      session,
+      aggregateOperation,
+      (err, response) => {
+        if (err || response == null) {
+          return callback(err);
+        }
+
+        const server = aggregateOperation.server;
+        if (
+          this.startAtOperationTime == null &&
+          this.resumeAfter == null &&
+          this.startAfter == null &&
+          maxWireVersion(server) >= 7
+        ) {
+          this.startAtOperationTime = response.operationTime;
+        }
+
+        this._processBatch(response);
+
+        this.emit(ChangeStream.INIT, response);
+        this.emit(ChangeStream.RESPONSE);
+
+        // TODO: NODE-2882
+        callback(undefined, { server, session, response });
       }
-
-      const server = aggregateOperation.server;
-      if (
-        this.startAtOperationTime == null &&
-        this.resumeAfter == null &&
-        this.startAfter == null &&
-        maxWireVersion(server) >= 7
-      ) {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore: TODO REMOVE ME! IMPROVE TYPES
-        this.startAtOperationTime = response.operationTime;
-      }
-
-      this._processBatch('firstBatch', response);
-
-      this.emit(ChangeStream.INIT, response);
-      this.emit(ChangeStream.RESPONSE);
-
-      // TODO: NODE-2882
-      callback(undefined, { server, session, response });
-    });
+    );
   }
 
   override _getMore(batchSize: number, callback: Callback): void {
@@ -935,7 +952,7 @@ export class ChangeStreamCursor<
         return callback(err);
       }
 
-      this._processBatch('nextBatch', response);
+      this._processBatch(response as TODO_NODE_3286 as ChangeStreamAggregateRawResult<TChange>);
 
       this.emit(ChangeStream.MORE, response);
       this.emit(ChangeStream.RESPONSE);

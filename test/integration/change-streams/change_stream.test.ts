@@ -7,6 +7,7 @@ import { PassThrough, Transform } from 'stream';
 import { ChangeStream, Collection, Long, MongoNetworkError, ReadPreference } from '../../../src';
 import { isHello } from '../../../src/utils';
 import * as mock from '../../tools/mongodb-mock/index';
+import { TestConfiguration } from '../../tools/runner/config';
 import { skipBrokenAuthTestBeforeEachHook } from '../../tools/runner/hooks/configuration';
 import {
   EventCollector,
@@ -22,13 +23,13 @@ type WithChangeStreamCallback = (
   done: (error?: Error) => void
 ) => void;
 
-function withChangeStream(callback?: WithChangeStreamCallback);
-function withChangeStream(dbName?: string, callback?: WithChangeStreamCallback);
+function withChangeStream(callback?: WithChangeStreamCallback): Mocha.Func;
+function withChangeStream(dbName?: string, callback?: WithChangeStreamCallback): Mocha.Func;
 function withChangeStream(
   dbName?: string | WithChangeStreamCallback,
   collectionName?: string | WithChangeStreamCallback,
   callback?: WithChangeStreamCallback
-) {
+): Mocha.Func {
   if (arguments.length === 1 && typeof dbName === 'function') {
     callback = dbName;
     dbName = undefined;
@@ -780,7 +781,7 @@ describe('Change Streams', function () {
 
         // Trigger the first database event
         waitForStarted(changeStream, () => {
-          this.defer(database.collection('invalidateListeners').insert({ a: 1 }));
+          this.defer(database.collection('invalidateListeners').insertOne({ a: 1 }));
         });
       });
     }
@@ -871,7 +872,7 @@ describe('Change Streams', function () {
 
         // Trigger the first database event
         waitForStarted(changeStream, () => {
-          this.defer(database.collection('invalidateCollectionDropPromises').insert({ a: 1 }));
+          this.defer(database.collection('invalidateCollectionDropPromises').insertOne({ a: 1 }));
         });
 
         return changeStream
@@ -1048,7 +1049,7 @@ describe('Change Streams', function () {
 
         // Trigger the first database event
         waitForStarted(changeStream, () => {
-          this.defer(collection.insert({ i: 128 }).then(() => collection.deleteOne({ i: 128 })));
+          this.defer(collection.insertOne({ i: 128 }).then(() => collection.deleteOne({ i: 128 })));
         });
 
         return changeStream
@@ -1069,7 +1070,7 @@ describe('Change Streams', function () {
             );
 
             // Trigger the second database event
-            return collection.update({ i: 128 }, { $set: { c: 2 } });
+            return collection.updateOne({ i: 128 }, { $set: { c: 2 } });
           })
           .then(() => changeStream.hasNext())
           .then(function (hasNext) {
@@ -1229,7 +1230,7 @@ describe('Change Streams', function () {
   it('should maintain change stream options on resume', {
     metadata: { requires: { topology: 'replicaset', mongodb: '>=3.6' } },
     test: function () {
-      const configuration = this.configuration;
+      const configuration: TestConfiguration = this.configuration;
       const client = configuration.newClient();
 
       const collectionName = 'resumeAfterKillCursor';
@@ -1813,149 +1814,149 @@ describe('Change Streams', function () {
         .toJSON()
     )
     .toMocha();
-});
 
-describe('Change Stream Resume Error Tests', function () {
-  it('should continue emitting change events after a resumable error', {
-    metadata: { requires: { topology: 'replicaset', mongodb: '>=3.6' } },
-    test: withChangeStream((collection, changeStream, done) => {
-      const docs = [];
-      changeStream.on('change', change => {
-        expect(change).to.exist;
-        docs.push(change);
-        if (docs.length === 2) {
-          expect(docs[0]).to.containSubset({
-            operationType: 'insert',
-            fullDocument: { a: 42 }
-          });
-          expect(docs[1]).to.containSubset({
-            operationType: 'insert',
-            fullDocument: { b: 24 }
-          });
-          done();
-        }
-      });
-
-      waitForStarted(changeStream, () => {
-        collection.insertOne({ a: 42 }, err => {
-          expect(err).to.not.exist;
-          triggerResumableError(changeStream, 1000, () => {
-            collection.insertOne({ b: 24 }, err => {
-              expect(err).to.not.exist;
+  describe('Resume Error Tests', function () {
+    it('should continue emitting change events after a resumable error', {
+      metadata: { requires: { topology: 'replicaset', mongodb: '>=3.6' } },
+      test: withChangeStream((collection, changeStream, done) => {
+        const docs = [];
+        changeStream.on('change', change => {
+          expect(change).to.exist;
+          docs.push(change);
+          if (docs.length === 2) {
+            expect(docs[0]).to.containSubset({
+              operationType: 'insert',
+              fullDocument: { a: 42 }
             });
-          });
+            expect(docs[1]).to.containSubset({
+              operationType: 'insert',
+              fullDocument: { b: 24 }
+            });
+            done();
+          }
         });
-      });
-    })
-  });
 
-  it('should continue iterating changes after a resumable error', {
-    metadata: { requires: { topology: 'replicaset', mongodb: '>=3.6' } },
-    test: withChangeStream((collection, changeStream, done) => {
-      waitForStarted(changeStream, () => {
-        collection.insertOne({ a: 42 }, err => {
-          expect(err).to.not.exist;
-          triggerResumableError(changeStream, 250, () => {
-            changeStream.hasNext((err1, hasNext) => {
-              expect(err1).to.not.exist;
-              expect(hasNext).to.be.true;
-              changeStream.next((err, change) => {
+        waitForStarted(changeStream, () => {
+          collection.insertOne({ a: 42 }, err => {
+            expect(err).to.not.exist;
+            triggerResumableError(changeStream, 1000, () => {
+              collection.insertOne({ b: 24 }, err => {
                 expect(err).to.not.exist;
-                expect(change).to.containSubset({
-                  operationType: 'insert',
-                  fullDocument: { b: 24 }
-                });
-                done();
               });
             });
-            collection.insertOne({ b: 24 });
           });
         });
-      });
+      })
+    });
 
-      changeStream.hasNext((err, hasNext) => {
-        expect(err).to.not.exist;
-        expect(hasNext).to.be.true;
-        changeStream.next((err, change) => {
-          expect(err).to.not.exist;
-          expect(change).to.containSubset({
-            operationType: 'insert',
-            fullDocument: { a: 42 }
-          });
-        });
-      });
-    })
-  });
-
-  it.skip('should continue piping changes after a resumable error', {
-    metadata: { requires: { topology: 'replicaset', mongodb: '>=3.6' } },
-    test: withChangeStream((collection, changeStream, done) => {
-      const d = new PassThrough({ objectMode: true });
-      const bucket = [];
-      d.on('data', data => {
-        bucket.push(data.fullDocument.x);
-        if (bucket.length === 2) {
-          expect(bucket[0]).to.be(1);
-          expect(bucket[0]).to.be(2);
-          done();
-        }
-      });
-      changeStream.stream().pipe(d);
-      waitForStarted(changeStream, () => {
-        collection.insertOne({ x: 1 }, (err, result) => {
-          expect(err).to.not.exist;
-          expect(result).to.exist;
-          triggerResumableError(changeStream, 250, () => {
-            collection.insertOne({ x: 2 }, (err, result) => {
-              expect(err).to.not.exist;
-              expect(result).to.exist;
+    it('should continue iterating changes after a resumable error', {
+      metadata: { requires: { topology: 'replicaset', mongodb: '>=3.6' } },
+      test: withChangeStream((collection, changeStream, done) => {
+        waitForStarted(changeStream, () => {
+          collection.insertOne({ a: 42 }, err => {
+            expect(err).to.not.exist;
+            triggerResumableError(changeStream, 250, () => {
+              changeStream.hasNext((err1, hasNext) => {
+                expect(err1).to.not.exist;
+                expect(hasNext).to.be.true;
+                changeStream.next((err, change) => {
+                  expect(err).to.not.exist;
+                  expect(change).to.containSubset({
+                    operationType: 'insert',
+                    fullDocument: { b: 24 }
+                  });
+                  done();
+                });
+              });
+              collection.insertOne({ b: 24 });
             });
           });
         });
-      });
-    })
-  }).skipReason = 'TODO(NODE-3884): Fix when implementing prose case #3';
 
-  describe('NODE-2626 - handle null changes without error', function () {
-    let mockServer;
-    afterEach(() => mock.cleanup());
-    beforeEach(() => mock.createServer().then(server => (mockServer = server)));
-    it('changeStream should close if cursor id for initial aggregate is Long.ZERO', function (done) {
-      mockServer.setMessageHandler(req => {
-        const doc = req.document;
-        if (isHello(doc)) {
-          return req.reply(mock.HELLO);
-        }
-        if (doc.aggregate) {
-          return req.reply({
-            ok: 1,
-            cursor: {
-              id: Long.ZERO,
-              firstBatch: []
-            }
+        changeStream.hasNext((err, hasNext) => {
+          expect(err).to.not.exist;
+          expect(hasNext).to.be.true;
+          changeStream.next((err, change) => {
+            expect(err).to.not.exist;
+            expect(change).to.containSubset({
+              operationType: 'insert',
+              fullDocument: { a: 42 }
+            });
           });
-        }
-        if (doc.getMore) {
-          return req.reply({
-            ok: 1,
-            cursor: {
-              id: new Long(1407, 1407),
-              nextBatch: []
-            }
+        });
+      })
+    });
+
+    it.skip('should continue piping changes after a resumable error', {
+      metadata: { requires: { topology: 'replicaset', mongodb: '>=3.6' } },
+      test: withChangeStream((collection, changeStream, done) => {
+        const d = new PassThrough({ objectMode: true });
+        const bucket = [];
+        d.on('data', data => {
+          bucket.push(data.fullDocument.x);
+          if (bucket.length === 2) {
+            expect(bucket[0]).to.be(1);
+            expect(bucket[0]).to.be(2);
+            done();
+          }
+        });
+        changeStream.stream().pipe(d);
+        waitForStarted(changeStream, () => {
+          collection.insertOne({ x: 1 }, (err, result) => {
+            expect(err).to.not.exist;
+            expect(result).to.exist;
+            triggerResumableError(changeStream, 250, () => {
+              collection.insertOne({ x: 2 }, (err, result) => {
+                expect(err).to.not.exist;
+                expect(result).to.exist;
+              });
+            });
           });
-        }
-        req.reply({ ok: 1 });
-      });
-      const client = this.configuration.newClient(`mongodb://${mockServer.uri()}/`);
-      client.connect(err => {
-        expect(err).to.not.exist;
-        const collection = client.db('cs').collection('test');
-        const changeStream = collection.watch();
-        changeStream.next((err, doc) => {
-          expect(err).to.exist;
-          expect(doc).to.not.exist;
-          expect(err.message).to.equal('ChangeStream is closed');
-          changeStream.close(() => client.close(done));
+        });
+      })
+    }).skipReason = 'TODO(NODE-3884): Fix when implementing prose case #3';
+
+    describe('NODE-2626 - handle null changes without error', function () {
+      let mockServer;
+      afterEach(() => mock.cleanup());
+      beforeEach(() => mock.createServer().then(server => (mockServer = server)));
+      it('changeStream should close if cursor id for initial aggregate is Long.ZERO', function (done) {
+        mockServer.setMessageHandler(req => {
+          const doc = req.document;
+          if (isHello(doc)) {
+            return req.reply(mock.HELLO);
+          }
+          if (doc.aggregate) {
+            return req.reply({
+              ok: 1,
+              cursor: {
+                id: Long.ZERO,
+                firstBatch: []
+              }
+            });
+          }
+          if (doc.getMore) {
+            return req.reply({
+              ok: 1,
+              cursor: {
+                id: new Long(1407, 1407),
+                nextBatch: []
+              }
+            });
+          }
+          req.reply({ ok: 1 });
+        });
+        const client = this.configuration.newClient(`mongodb://${mockServer.uri()}/`);
+        client.connect(err => {
+          expect(err).to.not.exist;
+          const collection = client.db('cs').collection('test');
+          const changeStream = collection.watch();
+          changeStream.next((err, doc) => {
+            expect(err).to.exist;
+            expect(doc).to.not.exist;
+            expect(err.message).to.equal('ChangeStream is closed');
+            changeStream.close(() => client.close(done));
+          });
         });
       });
     });
