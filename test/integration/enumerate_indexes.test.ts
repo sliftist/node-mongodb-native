@@ -2,11 +2,6 @@ import { TestBuilder, UnifiedTestSuiteBuilder } from '../tools/utils';
 
 new UnifiedTestSuiteBuilder('listIndexes with comment option')
   .createEntities(UnifiedTestSuiteBuilder.defaultEntities)
-  .initialData({
-    collectionName: 'collection0',
-    databaseName: 'database0',
-    documents: [{ _id: 1, x: 11 }]
-  })
   .test(
     new TestBuilder('listIndexes should not send comment for server versions < 4.4')
       .runOnRequirement({ maxServerVersion: '4.3.99' })

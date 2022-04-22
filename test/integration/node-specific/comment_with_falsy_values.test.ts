@@ -62,7 +62,7 @@ new UnifiedTestSuiteBuilder('Comment with Falsy Values')
   .createEntities(UnifiedTestSuiteBuilder.defaultEntities)
   .initialData({
     collectionName: 'collection0',
-    databaseName: '',
+    databaseName: 'database0',
     documents: [
       { _id: 1, x: 11 },
       { _id: 2, toBeDeleted: true } // This should only be used by the delete test

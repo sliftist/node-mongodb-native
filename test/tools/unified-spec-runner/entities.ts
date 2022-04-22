@@ -324,22 +324,6 @@ export class EntitiesMap<E = Entity> extends Map<string, E> {
       await session.endSession({ force: true });
     }
 
-    trace('drop namespaces');
-    for (const [, db] of this.mapOf('db')) {
-      if (['admin', 'local', 'config'].includes(db.databaseName)) {
-        continue;
-      }
-      expect(await db.dropDatabase()).to.be.true;
-    }
-
-    trace('drop namespaces');
-    for (const [, db] of this.mapOf('db')) {
-      if (['admin', 'local', 'config'].includes(db.databaseName)) {
-        continue;
-      }
-      expect(await db.dropDatabase()).to.be.true;
-    }
-
     trace('closeClient');
     for (const [, client] of this.mapOf('client')) {
       await client.close();
@@ -380,20 +364,10 @@ export class EntitiesMap<E = Entity> extends Map<string, E> {
         map.set(entity.database.id, db);
       } else if ('collection' in entity) {
         const db = map.getEntity('db', entity.collection.database);
-        const collection = await db
-          .createCollection(
-            entity.collection.collectionName,
-            patchCollectionOptions(entity.collection.collectionOptions)
-          )
-          .catch(error => {
-            if (/already exists/.test(error.message)) {
-              return db.collection(
-                entity.collection.collectionName,
-                patchCollectionOptions(entity.collection.collectionOptions)
-              );
-            }
-            throw error;
-          });
+        const collection = db.collection(
+          entity.collection.collectionName,
+          patchCollectionOptions(entity.collection.collectionOptions)
+        );
         map.set(entity.collection.id, collection);
       } else if ('session' in entity) {
         const client = map.getEntity('client', entity.session.client);
@@ -453,13 +427,6 @@ export class EntitiesMap<E = Entity> extends Map<string, E> {
         throw new Error(`Unsupported Entity ${JSON.stringify(entity)}`);
       }
     }
-
-    // startup events are never part of testing
-    for (const [, client] of map.mapOf('client')) {
-      client.commandEvents = [];
-      // client.cmapEvents = []; TODO connect optional PR
-    }
-
     return map;
   }
 }
